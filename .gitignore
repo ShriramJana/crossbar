@@ -1,0 +1,19 @@
+# Build output
+bin/
+coverage.out
+
+# Local secrets and config
+.env
+.env.*
+config.yaml
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local-only working notes and tooling config
+CLAUDE.md
+PRD.md
+settings.json
+.claude/
