@@ -9,7 +9,7 @@ Written in Go with the standard library `net/http` server. The circuit breaker, 
 | Milestone | Scope | State |
 |---|---|---|
 | M0 | Skeleton, `/health`, graceful shutdown, structured logging | done |
-| M1 | Provider interface, Anthropic and mock adapters | planned |
+| M1 | Provider interface, Anthropic and mock adapters | done |
 | M2 | Auth, teams, config hot reload | planned |
 | M3 | Redis token bucket, budgets | planned |
 | M4 | Circuit breaker, retry, fallback chain | planned |
