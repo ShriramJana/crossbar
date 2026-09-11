@@ -35,6 +35,8 @@ func configYAML(rpm int, withAdmin bool) string {
 tiers:
   cheap:
     - {provider: mock, model: mock-model}
+pricing:
+  - {provider: mock, model: mock-model, input_per_million: 0, output_per_million: 0}
 teams:
   - id: search
     name: Search
@@ -102,7 +104,7 @@ func TestDataPlaneAuth(t *testing.T) {
 		{name: "admin key is not a team key", bearer: adminKey, wantStatus: http.StatusUnauthorized},
 		{name: "hash of key is not the key", bearer: config.HashKey(teamKey), wantStatus: http.StatusUnauthorized},
 		{name: "wrong scheme", rawHeader: "Basic " + teamKey, wantStatus: http.StatusUnauthorized},
-		{name: "valid team key reaches handler", bearer: teamKey, wantStatus: http.StatusNotImplemented},
+		{name: "valid team key reaches handler", bearer: teamKey, wantStatus: http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -222,7 +224,7 @@ func TestAdminConfigReload(t *testing.T) {
 
 		// Traffic keeps flowing on the old config.
 		resp = env.do(t, http.MethodPost, "/v1/messages", teamKey)
-		assert.Equal(t, http.StatusNotImplemented, resp.StatusCode)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
 
 	t.Run("requires admin", func(t *testing.T) {
@@ -234,7 +236,7 @@ func TestAdminConfigReload(t *testing.T) {
 func TestKeyRevocationTakesEffectOnReload(t *testing.T) {
 	env := newEnv(t, configYAML(100, true))
 	resp := env.do(t, http.MethodPost, "/v1/messages", teamKey)
-	require.Equal(t, http.StatusNotImplemented, resp.StatusCode)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 	env.rewrite(t, strings.Replace(configYAML(100, true), config.HashKey(teamKey), config.HashKey("rotated"), 1))
 	require.NoError(t, env.store.Reload())
@@ -242,5 +244,5 @@ func TestKeyRevocationTakesEffectOnReload(t *testing.T) {
 	resp = env.do(t, http.MethodPost, "/v1/messages", teamKey)
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "old key must stop working")
 	resp = env.do(t, http.MethodPost, "/v1/messages", "rotated")
-	assert.Equal(t, http.StatusNotImplemented, resp.StatusCode, "new key must work")
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "new key must work")
 }

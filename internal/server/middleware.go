@@ -32,7 +32,13 @@ const requestIDHeader = "X-Request-ID"
 // and filled in by inner layers (auth, routing) so the single per-request log
 // line can carry facts that are only known further down the chain.
 type requestInfo struct {
-	team string
+	team         string
+	provider     string
+	model        string
+	inputTokens  int
+	outputTokens int
+	costUSD      float64
+	fallback     bool
 }
 
 func infoFromContext(ctx context.Context) *requestInfo {
@@ -97,14 +103,27 @@ func requestLog(logger *slog.Logger) middleware {
 			info := &requestInfo{}
 			ctx := context.WithValue(r.Context(), requestInfoKey, info)
 			next.ServeHTTP(rec, r.WithContext(ctx))
-			logger.LogAttrs(ctx, slog.LevelInfo, "request",
+			attrs := []slog.Attr{
 				slog.String("request_id", RequestIDFromContext(ctx)),
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.String("team", info.team),
 				slog.Int("status", rec.status),
 				slog.Duration("duration", time.Since(start)),
-			)
+			}
+			if info.provider != "" {
+				attrs = append(attrs,
+					slog.String("provider", info.provider),
+					slog.String("model", info.model),
+					slog.Int("input_tokens", info.inputTokens),
+					slog.Int("output_tokens", info.outputTokens),
+					slog.Float64("cost_usd", info.costUSD),
+					slog.Bool("fallback", info.fallback),
+				)
+			} else if info.model != "" {
+				attrs = append(attrs, slog.String("model", info.model))
+			}
+			logger.LogAttrs(ctx, slog.LevelInfo, "request", attrs...)
 		})
 	}
 }

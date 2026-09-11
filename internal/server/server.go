@@ -2,12 +2,38 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"github.com/ShriramJana/crossbar/internal/budget"
 	"github.com/ShriramJana/crossbar/internal/config"
+	"github.com/ShriramJana/crossbar/internal/limiter"
+	"github.com/ShriramJana/crossbar/internal/provider"
 )
+
+// Dispatcher is what the server needs from the router.
+type Dispatcher interface {
+	Dispatch(ctx context.Context, req *provider.Request) (*provider.Response, error)
+}
+
+// RateLimiter is what the server needs from the limiter.
+type RateLimiter interface {
+	Allow(ctx context.Context, team string, lim limiter.Limits, tokens int) (limiter.Decision, error)
+	Reconcile(ctx context.Context, team string, lim limiter.Limits, reserved, actual int) error
+}
+
+// Budgeter is what the server needs from the budget store.
+type Budgeter interface {
+	Check(ctx context.Context, team string, lim budget.Limits) (budget.Status, error)
+	Record(ctx context.Context, team string, lim budget.Limits, cost float64) (budget.Status, error)
+}
+
+// DefaultRequestTimeout bounds one client request end to end, including
+// every retry and fallback the router attempts.
+const DefaultRequestTimeout = 60 * time.Second
 
 // Options configures a Server.
 type Options struct {
@@ -15,13 +41,25 @@ type Options struct {
 	Logger *slog.Logger
 	// Config is the live configuration; auth and limits read it per request.
 	Config *config.Store
+	// Router dispatches data-plane requests to providers.
+	Router Dispatcher
+	// Limiter enforces per-team rate limits. Nil disables rate limiting.
+	Limiter RateLimiter
+	// Budget enforces per-team spend limits. Nil disables budgets.
+	Budget Budgeter
+	// RequestTimeout bounds one request end to end. Defaults to DefaultRequestTimeout.
+	RequestTimeout time.Duration
 }
 
 // Server owns the gateway's HTTP routes.
 type Server struct {
-	logger  *slog.Logger
-	config  *config.Store
-	handler http.Handler
+	logger         *slog.Logger
+	config         *config.Store
+	router         Dispatcher
+	limiter        RateLimiter
+	budget         Budgeter
+	requestTimeout time.Duration
+	handler        http.Handler
 }
 
 // New builds a Server with all routes and middleware attached.
@@ -29,7 +67,17 @@ func New(opts Options) *Server {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
-	s := &Server{logger: opts.Logger, config: opts.Config}
+	if opts.RequestTimeout == 0 {
+		opts.RequestTimeout = DefaultRequestTimeout
+	}
+	s := &Server{
+		logger:         opts.Logger,
+		config:         opts.Config,
+		router:         opts.Router,
+		limiter:        opts.Limiter,
+		budget:         opts.Budget,
+		requestTimeout: opts.RequestTimeout,
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
@@ -58,19 +106,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleMessages is the data-plane entry point. Routing lands in a later
-// milestone; until then an authenticated caller gets an explicit 501.
-func (s *Server) handleMessages(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented"})
-}
-
 func (s *Server) handleTeamUsage(w http.ResponseWriter, r *http.Request) {
 	team, ok := s.config.Current().TeamByID(r.PathValue("id"))
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown team"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	body := map[string]any{
 		"team": team.ID,
 		"name": team.Name,
 		"limits": map[string]any{
@@ -80,7 +122,28 @@ func (s *Server) handleTeamUsage(w http.ResponseWriter, r *http.Request) {
 			"monthly_budget_usd":  team.MonthlyBudgetUSD,
 			"allowed_models":      team.AllowedModels,
 		},
-	})
+	}
+	if s.budget != nil {
+		lim := budget.Limits{DailyUSD: team.DailyBudgetUSD, MonthlyUSD: team.MonthlyBudgetUSD}
+		st, err := s.budget.Check(r.Context(), team.ID, lim)
+		if err != nil {
+			body["spend_error"] = err.Error()
+		} else {
+			body["spend"] = map[string]any{
+				"daily":   periodJSON(st.Daily),
+				"monthly": periodJSON(st.Monthly),
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+func periodJSON(p budget.Period) map[string]any {
+	return map[string]any{
+		"spent_usd": p.Spent,
+		"limit_usd": p.Limit,
+		"resets_at": p.ResetsAt.Format(time.RFC3339),
+	}
 }
 
 func (s *Server) handleConfigReload(w http.ResponseWriter, _ *http.Request) {

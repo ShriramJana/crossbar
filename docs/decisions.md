@@ -33,3 +33,29 @@ Editors and deploy tools save by writing a temp file and renaming it over the or
 ## Empty `allowed_models` means every model
 
 Deny-by-default would be the safer reading, but it makes the common case (a team that may use anything in its tiers) verbose and easy to get wrong when a new model is added. The rate limits and budgets are the real blast-radius controls; the model list is a convenience restriction. This is documented next to the field in the example config.
+
+## Rate limiting is one Lua script, and limiter tests run against a real Redis
+
+The check-and-decrement for both dimensions (requests and tokens) runs in a single `EVALSHA` so that 1000 concurrent callers cannot interleave a read and a write. A read-then-write from Go would admit more than the limit under load, which is exactly the case the gateway exists for. Because the atomicity lives in Lua, an in-process Redis stand-in would test a reimplementation rather than the shipped code, so the limiter and budget tests connect to a real Redis and skip when none is reachable. `go test ./...` still passes on a bare machine; `make redis` starts one for the full run.
+
+The bucket stores its clock as Redis server time in microseconds. Lua's `tostring` renders a number that large as `1.7576e+15`, which lost precision and broke parsing; the script formats the fields explicitly. Worth knowing before writing the next script.
+
+## Token reservations are optimistic and reconciled after the call
+
+A request reserves `max_tokens` up front and refunds the unused part once the provider reports actual usage. Reserving nothing would let a burst of large requests through; reserving only the input would ignore the output, which is the expensive half. Overspend beyond the reservation is charged back, and the bucket is clamped to plus or minus one minute's capacity so a single bad reservation can neither lock a team out for long nor bank credit.
+
+## Limiter and budget failures fail open
+
+If Redis is unreachable, the request proceeds and the failure is logged. Failing closed would turn every Redis hiccup into a full outage of the gateway, which exists to prevent outages. The cost is that limits and budgets are unenforced for the duration of a Redis outage. Envoy's rate limit filter defaults the same way for the same reason.
+
+## Budgets are exhausted at 100%, warned at 80%, and zero means unlimited
+
+The 80% warning is a `SETNX` on a marker key with the period's TTL, so it fires once per period across every gateway instance rather than once per process. Reaching the limit exactly counts as exhausted. A zero budget disables the check rather than rejecting everything, so a team can be given rate limits without a spend cap.
+
+## A requested model leads its chain; a tier name selects the whole chain
+
+A request naming a model resolves to the tier that lists it, with that target first and the tier's other targets following in configured order. A request naming a tier gets the chain as configured. When two tiers list the same model, the tier listing it earliest wins, with ties broken by tier name so the answer is deterministic and does not depend on map iteration order.
+
+## Every tier target must have a pricing entry
+
+Validation rejects a config that routes to a (provider, model) with no price. The alternative, pricing unknown targets at zero, would silently leave spend unattributed, which is one of the four problems in the product brief.

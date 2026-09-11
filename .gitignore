@@ -11,8 +11,3 @@ config.yaml
 .DS_Store
 .idea/
 .vscode/
-
-# Local-only working notes and tooling config
-CLAUDE.md
-PRD.md
-.claude/
