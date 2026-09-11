@@ -215,20 +215,6 @@ func (c *Config) validate() error {
 		}
 	}
 
-	for name, targets := range c.Tiers {
-		if len(targets) == 0 {
-			return fmt.Errorf("tier %q: must list at least one target", name)
-		}
-		for _, t := range targets {
-			if _, ok := c.Providers[t.Provider]; !ok {
-				return fmt.Errorf("tier %q: unknown provider %q", name, t.Provider)
-			}
-			if t.Model == "" {
-				return fmt.Errorf("tier %q: target for provider %q has no model", name, t.Provider)
-			}
-		}
-	}
-
 	c.byPrice = make(map[Target]Price, len(c.Pricing))
 	for _, p := range c.Pricing {
 		if _, ok := c.Providers[p.Provider]; !ok {
@@ -245,6 +231,24 @@ func (c *Config) validate() error {
 			return fmt.Errorf("pricing %s/%s: duplicate entry", p.Provider, p.Model)
 		}
 		c.byPrice[key] = p
+	}
+
+	for name, targets := range c.Tiers {
+		if len(targets) == 0 {
+			return fmt.Errorf("tier %q: must list at least one target", name)
+		}
+		for _, t := range targets {
+			if _, ok := c.Providers[t.Provider]; !ok {
+				return fmt.Errorf("tier %q: unknown provider %q", name, t.Provider)
+			}
+			if t.Model == "" {
+				return fmt.Errorf("tier %q: target for provider %q has no model", name, t.Provider)
+			}
+			// Every routable target must be priceable, or spend goes unattributed.
+			if _, ok := c.byPrice[t]; !ok {
+				return fmt.Errorf("tier %q: no pricing for %s/%s", name, t.Provider, t.Model)
+			}
+		}
 	}
 
 	if err := c.Breaker.applyDefaults(); err != nil {

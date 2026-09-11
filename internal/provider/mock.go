@@ -45,10 +45,11 @@ func Slow(d time.Duration) Behavior { return Behavior{Delay: d} }
 type Mock struct {
 	name string
 
-	mu    sync.Mutex
-	queue []Behavior
-	def   Behavior
-	calls int
+	mu      sync.Mutex
+	queue   []Behavior
+	def     Behavior
+	calls   int
+	lastReq *Request
 }
 
 // NewMock returns a Mock that succeeds by default.
@@ -80,10 +81,18 @@ func (m *Mock) Calls() int {
 	return m.calls
 }
 
-func (m *Mock) next() Behavior {
+// LastRequest returns the most recent request passed to Send, or nil.
+func (m *Mock) LastRequest() *Request {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastReq
+}
+
+func (m *Mock) next(req *Request) Behavior {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
+	m.lastReq = req
 	if len(m.queue) == 0 {
 		return m.def
 	}
@@ -95,7 +104,7 @@ func (m *Mock) next() Behavior {
 // Send implements Provider.
 func (m *Mock) Send(ctx context.Context, req *Request) (*Response, error) {
 	start := time.Now()
-	b := m.next()
+	b := m.next(req)
 
 	if err := m.run(ctx, b); err != nil {
 		return nil, err

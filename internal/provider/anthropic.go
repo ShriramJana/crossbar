@@ -21,6 +21,8 @@ const (
 
 // AnthropicConfig configures the Anthropic Messages API adapter.
 type AnthropicConfig struct {
+	// Name is how the provider reports itself. Defaults to "anthropic".
+	Name string
 	// BaseURL overrides the API host. Defaults to https://api.anthropic.com.
 	BaseURL string
 	// APIKey is sent as the x-api-key header.
@@ -31,6 +33,7 @@ type AnthropicConfig struct {
 
 // Anthropic speaks the Anthropic Messages API over plain HTTP.
 type Anthropic struct {
+	name    string
 	baseURL string
 	apiKey  string
 	client  *http.Client
@@ -38,6 +41,9 @@ type Anthropic struct {
 
 // NewAnthropic builds an Anthropic adapter.
 func NewAnthropic(cfg AnthropicConfig) *Anthropic {
+	if cfg.Name == "" {
+		cfg.Name = "anthropic"
+	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = anthropicDefaultBaseURL
 	}
@@ -45,6 +51,7 @@ func NewAnthropic(cfg AnthropicConfig) *Anthropic {
 		cfg.Client = http.DefaultClient
 	}
 	return &Anthropic{
+		name:    cfg.Name,
 		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
 		apiKey:  cfg.APIKey,
 		client:  cfg.Client,
@@ -52,7 +59,7 @@ func NewAnthropic(cfg AnthropicConfig) *Anthropic {
 }
 
 // Name implements Provider.
-func (a *Anthropic) Name() string { return "anthropic" }
+func (a *Anthropic) Name() string { return a.name }
 
 // Wire types for the Messages API. Only the fields the gateway uses are modelled.
 

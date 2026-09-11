@@ -157,6 +157,13 @@ func TestParseRejectsInvalid(t *testing.T) {
 			wantErr: `pricing: unknown provider "nope"`,
 		},
 		{
+			name: "tier target without pricing",
+			mutate: func(s string) string {
+				return strings.Replace(s, "  - {provider: mock, model: mock-model, input_per_million: 0, output_per_million: 0}\n", "", 1)
+			},
+			wantErr: `tier "balanced": no pricing for mock/mock-model`,
+		},
+		{
 			name: "breaker threshold out of range",
 			mutate: func(s string) string {
 				return strings.Replace(s, "failure_threshold: 0.6", "failure_threshold: 1.5", 1)
