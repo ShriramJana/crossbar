@@ -1,0 +1,72 @@
+# Crossbar configuration.
+#
+# The file is reloaded when it changes on disk and on SIGHUP. A reload is
+# all-or-nothing: the whole file is parsed and validated first, and an invalid
+# edit is logged and ignored while the previous configuration stays active.
+#
+# Keys are never stored in plaintext. Generate a hash with:
+#   echo -n 'your-key' | crossbar -hash-key
+
+admin:
+  # Bearer key for /admin/* endpoints. Omit to disable them entirely.
+  key_sha256: ba30f59c2ec033f40fcd0f8dc89c9765a4d4ed51ee5140e915a8b3ccd2b43986   # change-me-admin
+
+providers:
+  anthropic:
+    type: anthropic
+    # Upstream secrets come from the environment, referenced by name.
+    api_key_env: ANTHROPIC_API_KEY
+    # base_url: https://api.anthropic.com
+    timeout: 60s
+  mock:
+    type: mock
+
+# Fallback chains by tier. A request names a tier's model; on failure the
+# router walks the rest of the chain in order.
+tiers:
+  frontier:
+    - {provider: anthropic, model: claude-opus-4-1}
+  balanced:
+    - {provider: anthropic, model: claude-sonnet-4-5}
+    - {provider: mock, model: mock-model}
+  cheap:
+    - {provider: anthropic, model: claude-haiku-4-5}
+    - {provider: mock, model: mock-model}
+
+# USD per million tokens. Cost is computed from the token counts the provider
+# reports, never estimated.
+pricing:
+  - {provider: anthropic, model: claude-opus-4-1, input_per_million: 15.00, output_per_million: 75.00}
+  - {provider: anthropic, model: claude-sonnet-4-5, input_per_million: 3.00, output_per_million: 15.00}
+  - {provider: anthropic, model: claude-haiku-4-5, input_per_million: 1.00, output_per_million: 5.00}
+  - {provider: mock, model: mock-model, input_per_million: 0, output_per_million: 0}
+
+# Circuit breaker tuning, one breaker per (provider, model). Values shown are
+# the defaults; the whole block may be omitted.
+breaker:
+  failure_threshold: 0.5   # open when this fraction of the window failed
+  min_requests: 20         # never open on fewer requests than this
+  window: 30s              # rolling window for the failure ratio
+  cooldown: 15s            # open -> half-open after this long
+  max_cooldown: 2m         # cooldown doubles on each failed probe, up to this
+
+teams:
+  - id: search
+    name: Search
+    keys_sha256:
+      - 141fe3ea173129bbd352af0331c1b0559ee0e19ab9e14b467e6e663257581b32   # change-me-search
+    # Empty or omitted allows every model.
+    allowed_models: [claude-sonnet-4-5, claude-haiku-4-5]
+    requests_per_minute: 120
+    tokens_per_minute: 200000
+    daily_budget_usd: 50
+    monthly_budget_usd: 1000
+
+  - id: batch
+    name: Nightly batch jobs
+    keys_sha256:
+      - 696f4037da282bc7d3bf2ee3ba58b861c2f7f8f20bc6cb631c6eeab284105262   # change-me-batch
+    requests_per_minute: 30
+    tokens_per_minute: 500000
+    daily_budget_usd: 20
+    monthly_budget_usd: 400
