@@ -15,5 +15,4 @@ config.yaml
 # Local-only working notes and tooling config
 CLAUDE.md
 PRD.md
-settings.json
 .claude/
