@@ -21,3 +21,15 @@ Each adapter marshals the normalized `Request` into the provider's wire format w
 ## Anthropic health checks hit `GET /v1/models`, not the Messages endpoint
 
 A background prober runs every 30 seconds per provider. Sending even a one-token message would be a billable call each time; listing models is free, still exercises auth and connectivity, and returns the same status codes on outage. The trade-off is that it does not prove inference works, which the live traffic and breaker already cover.
+
+## Config watcher watches the directory and reloads on any event for the file name
+
+Editors and deploy tools save by writing a temp file and renaming it over the original. A watch on the file itself follows the old inode and goes silent after the first save. Watching the parent directory and filtering by base name survives that. The backends also disagree on how a rename-replace surfaces (inotify reports Create, kqueue reports Remove then Create), so any event for the name schedules a debounced reload rather than matching specific operations. A reload that finds the file unchanged is a no-op; one that finds it momentarily absent logs and keeps the old config.
+
+## Unknown config fields are a hard error
+
+`requests_per_min` instead of `requests_per_minute` would otherwise parse cleanly and leave the team with a zero limit, which validation catches, or silently drop an `allowed_models` restriction, which nothing would catch. Strict decoding turns a typo into a rejected reload with the field name in the error. The cost is that adding a field requires a code change before the file can mention it, which is the intended coupling.
+
+## Empty `allowed_models` means every model
+
+Deny-by-default would be the safer reading, but it makes the common case (a team that may use anything in its tiers) verbose and easy to get wrong when a new model is added. The rate limits and budgets are the real blast-radius controls; the model list is a convenience restriction. This is documented next to the field in the example config.

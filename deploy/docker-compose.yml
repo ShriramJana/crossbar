@@ -7,9 +7,16 @@ services:
       - "8080:8080"
     environment:
       CROSSBAR_ADDR: ":8080"
+      CROSSBAR_CONFIG: /etc/crossbar/config.yaml
       CROSSBAR_LOG_FORMAT: json
       CROSSBAR_LOG_LEVEL: info
       REDIS_ADDR: redis:6379
+      # Upstream keys are read from the host environment when set.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      # Copy config.example.yaml to config.yaml at the repo root to customise;
+      # config.yaml is gitignored. Falls back to the example when absent.
+      - ../${CROSSBAR_CONFIG_FILE:-config.example.yaml}:/etc/crossbar/config.yaml:ro
     depends_on:
       redis:
         condition: service_healthy

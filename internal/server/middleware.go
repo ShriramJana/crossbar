@@ -21,9 +21,24 @@ func chain(h http.Handler, ms ...middleware) http.Handler {
 
 type ctxKey int
 
-const requestIDKey ctxKey = iota
+const (
+	requestIDKey ctxKey = iota
+	requestInfoKey
+)
 
 const requestIDHeader = "X-Request-ID"
+
+// requestInfo is attached to the context by the outermost logging middleware
+// and filled in by inner layers (auth, routing) so the single per-request log
+// line can carry facts that are only known further down the chain.
+type requestInfo struct {
+	team string
+}
+
+func infoFromContext(ctx context.Context) *requestInfo {
+	info, _ := ctx.Value(requestInfoKey).(*requestInfo)
+	return info
+}
 
 // RequestIDFromContext returns the request ID attached by the server, or "" if none.
 func RequestIDFromContext(ctx context.Context) string {
@@ -79,11 +94,14 @@ func requestLog(logger *slog.Logger) middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			rec := &statusRecorder{ResponseWriter: w}
-			next.ServeHTTP(rec, r)
-			logger.LogAttrs(r.Context(), slog.LevelInfo, "request",
-				slog.String("request_id", RequestIDFromContext(r.Context())),
+			info := &requestInfo{}
+			ctx := context.WithValue(r.Context(), requestInfoKey, info)
+			next.ServeHTTP(rec, r.WithContext(ctx))
+			logger.LogAttrs(ctx, slog.LevelInfo, "request",
+				slog.String("request_id", RequestIDFromContext(ctx)),
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
+				slog.String("team", info.team),
 				slog.Int("status", rec.status),
 				slog.Duration("duration", time.Since(start)),
 			)

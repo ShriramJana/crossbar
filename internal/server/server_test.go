@@ -2,24 +2,17 @@ package server_test
 
 import (
 	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ShriramJana/crossbar/internal/server"
 )
 
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	s := server.New(server.Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	ts := httptest.NewServer(s.Handler())
-	t.Cleanup(ts.Close)
-	return ts
+	return newEnv(t, configYAML(100, true)).ts
 }
 
 func TestHealth(t *testing.T) {
