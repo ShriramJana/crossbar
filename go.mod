@@ -1,4 +1,4 @@
-module github.com/ShriramJana/relay
+module github.com/ShriramJana/crossbar
 
 go 1.22
 

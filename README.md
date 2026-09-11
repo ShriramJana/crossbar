@@ -1,6 +1,6 @@
-# Relay
+# Crossbar
 
-A multi-provider LLM gateway. Applications point at Relay instead of at a model provider directly. Relay authenticates the caller, enforces per-team rate limits and spending budgets, routes to a healthy provider, and fails over when one degrades.
+A multi-provider LLM gateway. Applications point at Crossbar instead of at a model provider directly. Crossbar authenticates the caller, enforces per-team rate limits and spending budgets, routes to a healthy provider, and fails over when one degrades.
 
 Written in Go with the standard library `net/http` server. The circuit breaker, token bucket, and fallback logic are implemented in-repo rather than imported.
 
@@ -19,10 +19,10 @@ Written in Go with the standard library `net/http` server. The circuit breaker, 
 ## Running
 
 ```bash
-make build       # builds bin/relay
+make build       # builds bin/crossbar
 make test        # go test -race ./...
 make check       # lint + test
-make run         # docker compose: relay, redis, prometheus, grafana
+make run         # docker compose: crossbar, redis, prometheus, grafana
 ```
 
 Once the stack is up:
@@ -39,9 +39,9 @@ Runtime flags (each also readable from the environment variable in parentheses):
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `-addr` | `RELAY_ADDR` | `:8080` | listen address |
-| `-log-format` | `RELAY_LOG_FORMAT` | `text` | `json` or `text` |
-| `-log-level` | `RELAY_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
+| `-addr` | `CROSSBAR_ADDR` | `:8080` | listen address |
+| `-log-format` | `CROSSBAR_LOG_FORMAT` | `text` | `json` or `text` |
+| `-log-level` | `CROSSBAR_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `-drain-timeout` | | `10s` | grace period for in-flight requests on shutdown |
 
 ## Results

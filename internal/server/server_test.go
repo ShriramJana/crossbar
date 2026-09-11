@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ShriramJana/relay/internal/server"
+	"github.com/ShriramJana/crossbar/internal/server"
 )
 
 func newTestServer(t *testing.T) *httptest.Server {

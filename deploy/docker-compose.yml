@@ -1,14 +1,14 @@
 services:
-  relay:
+  crossbar:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
     ports:
       - "8080:8080"
     environment:
-      RELAY_ADDR: ":8080"
-      RELAY_LOG_FORMAT: json
-      RELAY_LOG_LEVEL: info
+      CROSSBAR_ADDR: ":8080"
+      CROSSBAR_LOG_FORMAT: json
+      CROSSBAR_LOG_LEVEL: info
       REDIS_ADDR: redis:6379
     depends_on:
       redis:

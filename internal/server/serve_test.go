@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ShriramJana/relay/internal/server"
+	"github.com/ShriramJana/crossbar/internal/server"
 )
 
 func listen(t *testing.T) net.Listener {

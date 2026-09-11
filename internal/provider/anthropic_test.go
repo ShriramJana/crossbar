@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ShriramJana/relay/internal/provider"
+	"github.com/ShriramJana/crossbar/internal/provider"
 )
 
 // anthropicMessage mirrors the subset of the Messages API response the adapter reads.

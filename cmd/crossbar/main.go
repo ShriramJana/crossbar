@@ -1,4 +1,4 @@
-// Command relay runs the LLM gateway.
+// Command crossbar runs the LLM gateway.
 package main
 
 import (
@@ -12,22 +12,22 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ShriramJana/relay/internal/observability"
-	"github.com/ShriramJana/relay/internal/server"
+	"github.com/ShriramJana/crossbar/internal/observability"
+	"github.com/ShriramJana/crossbar/internal/server"
 )
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "relay:", err)
+		fmt.Fprintln(os.Stderr, "crossbar:", err)
 		os.Exit(1)
 	}
 }
 
 func run() error {
 	var (
-		addr      = flag.String("addr", envOr("RELAY_ADDR", ":8080"), "listen address")
-		logFormat = flag.String("log-format", envOr("RELAY_LOG_FORMAT", "text"), "log format: json or text")
-		logLevel  = flag.String("log-level", envOr("RELAY_LOG_LEVEL", "info"), "log level: debug, info, warn, error")
+		addr      = flag.String("addr", envOr("CROSSBAR_ADDR", ":8080"), "listen address")
+		logFormat = flag.String("log-format", envOr("CROSSBAR_LOG_FORMAT", "text"), "log format: json or text")
+		logLevel  = flag.String("log-level", envOr("CROSSBAR_LOG_LEVEL", "info"), "log level: debug, info, warn, error")
 		drain     = flag.Duration("drain-timeout", 10*time.Second, "how long to wait for in-flight requests on shutdown")
 	)
 	flag.Parse()
@@ -47,7 +47,7 @@ func run() error {
 	defer stop()
 
 	srv := server.New(server.Options{Logger: logger})
-	logger.Info("relay listening", slog.String("addr", ln.Addr().String()))
+	logger.Info("crossbar listening", slog.String("addr", ln.Addr().String()))
 
 	return server.Serve(ctx, ln, srv.Handler(), server.ServeOptions{
 		DrainTimeout: *drain,

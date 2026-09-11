@@ -1,7 +1,7 @@
 apiVersion: 1
 
 providers:
-  - name: relay
+  - name: crossbar
     folder: ""
     type: file
     options:

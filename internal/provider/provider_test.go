@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ShriramJana/relay/internal/provider"
+	"github.com/ShriramJana/crossbar/internal/provider"
 )
 
 func TestClassifyStatus(t *testing.T) {

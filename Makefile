@@ -1,9 +1,9 @@
 .PHONY: build test lint check run stop loadtest clean
 
-BIN := bin/relay
+BIN := bin/crossbar
 
 build:
-	go build -o $(BIN) ./cmd/relay
+	go build -o $(BIN) ./cmd/crossbar
 
 test:
 	go test -race ./...

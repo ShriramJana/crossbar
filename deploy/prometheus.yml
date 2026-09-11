@@ -2,6 +2,6 @@ global:
   scrape_interval: 5s
 
 scrape_configs:
-  - job_name: relay
+  - job_name: crossbar
     static_configs:
-      - targets: ["relay:8080"]
+      - targets: ["crossbar:8080"]

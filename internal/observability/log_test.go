@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ShriramJana/relay/internal/observability"
+	"github.com/ShriramJana/crossbar/internal/observability"
 )
 
 func TestNewLogger(t *testing.T) {

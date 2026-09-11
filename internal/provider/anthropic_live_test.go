@@ -9,15 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ShriramJana/relay/internal/provider"
+	"github.com/ShriramJana/crossbar/internal/provider"
 )
 
 // TestAnthropicLive makes one real, billable call. It is skipped unless both
-// RELAY_LIVE_ANTHROPIC=1 and ANTHROPIC_API_KEY are set, so the default
+// CROSSBAR_LIVE_ANTHROPIC=1 and ANTHROPIC_API_KEY are set, so the default
 // `go test ./...` never touches the network or needs a secret.
 func TestAnthropicLive(t *testing.T) {
-	if os.Getenv("RELAY_LIVE_ANTHROPIC") != "1" {
-		t.Skip("set RELAY_LIVE_ANTHROPIC=1 and ANTHROPIC_API_KEY to run against the real API")
+	if os.Getenv("CROSSBAR_LIVE_ANTHROPIC") != "1" {
+		t.Skip("set CROSSBAR_LIVE_ANTHROPIC=1 and ANTHROPIC_API_KEY to run against the real API")
 	}
 	key := os.Getenv("ANTHROPIC_API_KEY")
 	if key == "" {
