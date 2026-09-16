@@ -70,7 +70,7 @@ func newDataEnv(t *testing.T, yaml string, opts func(*server.Options)) *dataEnv 
 	o := server.Options{
 		Logger: logger,
 		Config: store,
-		Router: router.New(store, map[string]provider.Provider{"mock": mock}, logger),
+		Router: router.New(store, map[string]provider.Provider{"mock": mock}, router.Options{Logger: logger}),
 	}
 	if opts != nil {
 		opts(&o)
@@ -211,7 +211,8 @@ func TestMessagesUpstreamErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newDataEnv(t, dataPlaneYAML(100, 0), nil)
-			env.mock.Enqueue(tt.behavior)
+			// Persistent failure: retries must not turn a dead provider into a success.
+			env.mock.SetDefault(tt.behavior)
 			resp, body := env.post(t, goodBody)
 			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 			assert.Equal(t, tt.wantError, body["error"])

@@ -242,16 +242,20 @@ func (s *Server) settle(ctx context.Context, team *config.Team, req *provider.Re
 
 // writeDispatchError maps routing and upstream failures to client responses.
 func (s *Server) writeDispatchError(w http.ResponseWriter, err error) {
+	var ce *router.ChainError
 	switch {
 	case errors.Is(err, router.ErrUnknownModel):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown_model"})
 		return
-	case errors.Is(err, router.ErrNoProvider):
-		s.logger.Error("dispatch to unregistered provider", slog.Any("error", err))
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "upstream_unavailable"})
-		return
 	case errors.Is(err, context.DeadlineExceeded):
-		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "upstream_timeout"})
+		body := map[string]any{"error": "upstream_timeout"}
+		if errors.As(err, &ce) {
+			body["attempted"] = ce.Attempts
+		}
+		writeJSON(w, http.StatusGatewayTimeout, body)
+		return
+	case errors.As(err, &ce):
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "upstream_unavailable", "attempted": ce.Attempts})
 		return
 	}
 
@@ -265,5 +269,6 @@ func (s *Server) writeDispatchError(w http.ResponseWriter, err error) {
 		writeJSON(w, status, map[string]string{"error": "upstream_rejected", "message": pe.Err.Error()})
 		return
 	}
+	s.logger.Error("unclassified dispatch error", slog.Any("error", err))
 	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "upstream_unavailable"})
 }

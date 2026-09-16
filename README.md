@@ -12,7 +12,7 @@ Written in Go with the standard library `net/http` server. The circuit breaker, 
 | M1 | Provider interface, Anthropic and mock adapters | done |
 | M2 | Auth, teams, config hot reload | done |
 | M3 | Redis token bucket, budgets | done |
-| M4 | Circuit breaker, retry, fallback chain | planned |
+| M4 | Circuit breaker, retry, fallback chain | done |
 | M5 | Prometheus metrics, Grafana dashboard | planned |
 | M6 | Load test and measured results | planned |
 
@@ -75,9 +75,20 @@ Rejections on the data plane:
 | `429` | `rate_limited` | requests or tokens per minute exhausted; `Retry-After` and `dimension` say which |
 | `402` | `budget_exhausted` | daily or monthly spend reached; `period` and `resets_at` say which and when |
 | `400` | `unknown_model` | no tier lists the model |
-| `503` / `504` | `upstream_unavailable` / `upstream_timeout` | provider failed or the request deadline passed |
+| `503` / `504` | `upstream_unavailable` / `upstream_timeout` | every target in the chain failed or was skipped, or the request deadline passed; `attempted` lists each target and why |
 
-Retry and fallback across providers land in M4; until then a provider failure surfaces directly.
+## Resilience
+
+A request names a model; the model resolves to a tier, and the tier is a fallback chain of `(provider, model)` targets. On a retryable failure (429, 5xx, timeout, connection error) the same target is retried with full-jittered exponential backoff, then the chain moves on. A non-retryable failure (4xx) goes straight back to the caller. The whole walk shares one deadline.
+
+Each target has its own circuit breaker, written in [internal/breaker](internal/breaker/breaker.go). Closed admits everything and counts outcomes over a rolling window; once the failure ratio crosses the threshold with enough traffic behind it, the breaker opens and rejects instantly. After a cooldown it admits one probe: success closes it, failure reopens it with the cooldown doubled up to a cap. Open breakers are skipped in the chain without an upstream call.
+
+A background prober health-checks every provider on an interval. Down providers are excluded from routing; degraded ones are tried after healthy ones.
+
+| Route | Purpose |
+|---|---|
+| `GET /health/providers` | per-provider status, error rate, p99 probe latency; every breaker's state and window counts. No auth |
+| `POST /admin/breakers/{provider}/{model}/reset` | force a breaker closed |
 
 Control plane, authenticated with the admin key:
 

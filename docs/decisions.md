@@ -56,6 +56,32 @@ The 80% warning is a `SETNX` on a marker key with the period's TTL, so it fires 
 
 A request naming a model resolves to the tier that lists it, with that target first and the tier's other targets following in configured order. A request naming a tier gets the chain as configured. When two tiers list the same model, the tier listing it earliest wins, with ties broken by tier name so the answer is deterministic and does not depend on map iteration order.
 
+## Breaker permits carry their own outcome, and stale ones are ignored
+
+`Allow` hands back a `Permit` rather than a bare bool, and the caller reports the outcome on the permit. Each permit remembers whether it was the half-open probe and which probe generation it belongs to. A result reported by a permit that was issued while closed is dropped once the breaker has opened, and a non-probe result can never close a half-open breaker. Without this, a slow request that started before the breaker tripped could report success during the half-open period and close the breaker on evidence from before the outage. The alternative, plain `RecordSuccess()` and `RecordFailure()` methods, cannot tell those cases apart.
+
+A probe whose holder never reports would wedge the breaker half-open forever, so a second probe is issued if the first has been outstanding for longer than the cooldown.
+
+## The breaker's rolling window is ten fixed buckets
+
+Outcomes are counted in ten buckets of `window/10` each, stamped by wall-clock bucket index. Old buckets are excluded by stamp rather than cleared by a timer, so there is no background goroutine and no lock held on a schedule. Resolution is one tenth of the window, which is fine for a 30-second default. A sliding log of every outcome would be exact but unbounded under load.
+
+## A 4xx from the upstream counts as a success for the breaker
+
+The breaker measures whether the provider is answering, not whether callers are sending valid requests. A 400 or 401 is an answer. Counting it as neither would starve the window of evidence during a burst of bad client traffic; counting it as a failure would let one misconfigured client take a healthy provider out of rotation. It counts as a success, and the non-retryable error goes straight back to the caller with no retry and no fallback.
+
+## Retry backoff is full jitter, capped, and shares the request deadline
+
+Each retry waits a uniform random duration in `[0, min(base * 2^n, max)]`. Full jitter spreads a thundering herd of retries better than equal jitter or fixed backoff at the same mean. The sleep is interruptible by the request context, and the next attempt is not started once the deadline has passed, so a caller who asked for a 30-second timeout is never held for three providers' worth of timeouts.
+
+## Fallback means "not the configured primary"
+
+The `X-Crossbar-Fallback` header and the `Fallback` field are true whenever the response came from any target other than the one listed first for the requested model, including when health reordering moved a degraded primary behind a healthy secondary. Callers use the flag to notice that something is off; which target served them is in `X-Crossbar-Provider`.
+
+## Health probes and live traffic feed different signals
+
+The circuit breaker sees every live request and reacts within seconds. The health prober runs every 30 seconds and reacts within minutes. Both exist because they answer different questions: the breaker asks "is this (provider, model) failing right now?", the prober asks "is this provider reachable at all?", which also covers providers that are receiving no traffic. Down providers are excluded from routing; degraded ones are tried last. The prober's status is derived from the last ten probes: down needs a failing latest probe and at least half failures, so one blip is degraded and one recovery is also degraded rather than an immediate flip to healthy.
+
 ## Every tier target must have a pricing entry
 
 Validation rejects a config that routes to a (provider, model) with no price. The alternative, pricing unknown targets at zero, would silently leave spend unattributed, which is one of the four problems in the product brief.

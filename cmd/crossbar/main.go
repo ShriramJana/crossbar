@@ -12,14 +12,17 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/ShriramJana/crossbar/internal/breaker"
 	"github.com/ShriramJana/crossbar/internal/budget"
 	"github.com/ShriramJana/crossbar/internal/config"
+	"github.com/ShriramJana/crossbar/internal/health"
 	"github.com/ShriramJana/crossbar/internal/limiter"
 	"github.com/ShriramJana/crossbar/internal/observability"
 	"github.com/ShriramJana/crossbar/internal/provider"
@@ -88,10 +91,33 @@ func run() error {
 		return fmt.Errorf("watching config: %w", err)
 	}
 
+	breakers := breaker.NewRegistry(
+		func() breaker.Settings { return breaker.SettingsFromConfig(store.Current().Breaker) },
+		breaker.RegistryOptions{OnTransition: func(prov, model string, from, to breaker.State) {
+			logger.Warn("breaker state changed",
+				slog.String("provider", prov),
+				slog.String("model", model),
+				slog.String("from", from.String()),
+				slog.String("to", to.String()))
+		}},
+	)
+
+	hc := store.Current().Health
+	monitor := health.NewMonitor(probers(providers), health.Options{
+		Interval: hc.Interval,
+		Timeout:  hc.Timeout,
+		Logger:   logger,
+	})
+	monitorDone := monitor.Start(ctx)
+
 	srv := server.New(server.Options{
-		Logger:  logger,
-		Config:  store,
-		Router:  router.New(store, providers, logger),
+		Logger: logger,
+		Config: store,
+		Router: router.New(store, providers, router.Options{
+			Breakers: breakers,
+			Health:   monitor,
+			Logger:   logger,
+		}),
 		Limiter: limiter.New(rdb),
 		Budget: budget.New(rdb, budget.Options{OnWarn: func(w budget.Warning) {
 			logger.Warn("budget warning: 80% consumed",
@@ -100,6 +126,8 @@ func run() error {
 				slog.Float64("spent_usd", w.Spent),
 				slog.Float64("limit_usd", w.Limit))
 		}}),
+		Breakers:       breakers,
+		Health:         monitor,
 		RequestTimeout: *reqTimeout,
 	})
 	logger.Info("crossbar listening",
@@ -115,6 +143,7 @@ func run() error {
 	})
 	stop()
 	<-watchDone
+	<-monitorDone
 	return serveErr
 }
 
@@ -131,6 +160,19 @@ func buildProviders(cfg *config.Config) (map[string]provider.Provider, error) {
 		providers[name] = p
 	}
 	return providers, nil
+}
+
+func probers(providers map[string]provider.Provider) []health.Prober {
+	names := make([]string, 0, len(providers))
+	for name := range providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]health.Prober, 0, len(names))
+	for _, name := range names {
+		out = append(out, providers[name])
+	}
+	return out
 }
 
 // printKeyHash reads one line from in and writes its config-ready hash to out.

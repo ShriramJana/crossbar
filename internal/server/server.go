@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ShriramJana/crossbar/internal/breaker"
 	"github.com/ShriramJana/crossbar/internal/budget"
 	"github.com/ShriramJana/crossbar/internal/config"
+	"github.com/ShriramJana/crossbar/internal/health"
 	"github.com/ShriramJana/crossbar/internal/limiter"
 	"github.com/ShriramJana/crossbar/internal/provider"
 )
@@ -31,6 +33,11 @@ type Budgeter interface {
 	Record(ctx context.Context, team string, lim budget.Limits, cost float64) (budget.Status, error)
 }
 
+// HealthReporter is what the server needs from the health monitor.
+type HealthReporter interface {
+	Snapshot() map[string]health.Report
+}
+
 // DefaultRequestTimeout bounds one client request end to end, including
 // every retry and fallback the router attempts.
 const DefaultRequestTimeout = 60 * time.Second
@@ -47,6 +54,10 @@ type Options struct {
 	Limiter RateLimiter
 	// Budget enforces per-team spend limits. Nil disables budgets.
 	Budget Budgeter
+	// Breakers is exposed on the health endpoint and the admin reset route. Optional.
+	Breakers *breaker.Registry
+	// Health is exposed on the health endpoint. Optional.
+	Health HealthReporter
 	// RequestTimeout bounds one request end to end. Defaults to DefaultRequestTimeout.
 	RequestTimeout time.Duration
 }
@@ -58,6 +69,8 @@ type Server struct {
 	router         Dispatcher
 	limiter        RateLimiter
 	budget         Budgeter
+	breakers       *breaker.Registry
+	health         HealthReporter
 	requestTimeout time.Duration
 	handler        http.Handler
 }
@@ -76,11 +89,14 @@ func New(opts Options) *Server {
 		router:         opts.Router,
 		limiter:        opts.Limiter,
 		budget:         opts.Budget,
+		breakers:       opts.Breakers,
+		health:         opts.Health,
 		requestTimeout: opts.RequestTimeout,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /health/providers", s.handleHealthProviders)
 
 	// Data plane: authenticated as a team.
 	mux.Handle("POST /v1/messages", chain(http.HandlerFunc(s.handleMessages), teamAuth(s.config)))
@@ -89,6 +105,7 @@ func New(opts Options) *Server {
 	admin := adminAuth(s.config)
 	mux.Handle("GET /admin/teams/{id}/usage", chain(http.HandlerFunc(s.handleTeamUsage), admin))
 	mux.Handle("POST /admin/config/reload", chain(http.HandlerFunc(s.handleConfigReload), admin))
+	mux.Handle("POST /admin/breakers/{provider}/{model}/reset", chain(http.HandlerFunc(s.handleBreakerReset), admin))
 
 	s.handler = chain(mux,
 		requestID,
@@ -104,6 +121,56 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleHealthProviders(w http.ResponseWriter, _ *http.Request) {
+	providers := map[string]any{}
+	if s.health != nil {
+		for name, r := range s.health.Snapshot() {
+			entry := map[string]any{
+				"status":     r.Status.String(),
+				"error_rate": r.ErrorRate,
+				"p99_ms":     float64(r.P99) / float64(time.Millisecond),
+				"probes":     r.Probes,
+			}
+			if r.LastError != "" {
+				entry["last_error"] = r.LastError
+			}
+			if !r.LastChecked.IsZero() {
+				entry["last_checked"] = r.LastChecked.UTC().Format(time.RFC3339)
+			}
+			providers[name] = entry
+		}
+	}
+
+	breakers := []any{}
+	if s.breakers != nil {
+		for _, e := range s.breakers.Snapshot() {
+			entry := map[string]any{
+				"provider":    e.Provider,
+				"model":       e.Model,
+				"state":       e.State.String(),
+				"requests":    e.Requests,
+				"failures":    e.Failures,
+				"cooldown_ms": float64(e.Cooldown) / float64(time.Millisecond),
+			}
+			if !e.RetryAt.IsZero() {
+				entry["retry_at"] = e.RetryAt.UTC().Format(time.RFC3339)
+			}
+			breakers = append(breakers, entry)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"providers": providers, "breakers": breakers})
+}
+
+func (s *Server) handleBreakerReset(w http.ResponseWriter, r *http.Request) {
+	prov, model := r.PathValue("provider"), r.PathValue("model")
+	if s.breakers == nil || !s.breakers.Reset(prov, model) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown breaker"})
+		return
+	}
+	s.logger.Warn("breaker reset by admin", slog.String("provider", prov), slog.String("model", model))
+	writeJSON(w, http.StatusOK, map[string]string{"provider": prov, "model": model, "state": breaker.Closed.String()})
 }
 
 func (s *Server) handleTeamUsage(w http.ResponseWriter, r *http.Request) {

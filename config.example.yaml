@@ -50,6 +50,23 @@ breaker:
   cooldown: 15s            # open -> half-open after this long
   max_cooldown: 2m         # cooldown doubles on each failed probe, up to this
 
+# Same-target retries before moving down the fallback chain. Only retryable
+# failures (429, 5xx, timeouts, connection errors) are retried; a 4xx is
+# returned to the caller at once. Backoff is full-jittered: each wait is
+# uniform in [0, min(base_backoff * 2^n, max_backoff)]. Values shown are the
+# defaults; the whole block may be omitted. Every retry and fallback shares
+# the request's single deadline (-request-timeout).
+retry:
+  max_retries: 2
+  base_backoff: 100ms
+  max_backoff: 2s
+
+# Background health prober, one goroutine per provider. Down providers are
+# skipped in routing; degraded ones are tried after healthy ones.
+health:
+  interval: 30s
+  timeout: 5s
+
 teams:
   - id: search
     name: Search
