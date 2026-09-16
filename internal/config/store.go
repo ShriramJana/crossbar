@@ -43,6 +43,11 @@ func NewStore(path string, logger *slog.Logger) (*Store, error) {
 	return s, nil
 }
 
+// Path returns the file the store loads from.
+func (s *Store) Path() string {
+	return s.path
+}
+
 // Current returns the active configuration. The returned value is immutable.
 func (s *Store) Current() *Config {
 	return s.cur.Load()

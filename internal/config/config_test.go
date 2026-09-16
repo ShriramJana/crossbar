@@ -69,6 +69,39 @@ func TestParseValid(t *testing.T) {
 	assert.Equal(t, 30*time.Second, cfg.Breaker.Window)
 	assert.Equal(t, 15*time.Second, cfg.Breaker.Cooldown)
 	assert.Equal(t, 2*time.Minute, cfg.Breaker.MaxCooldown)
+
+	// Retry and health blocks omitted entirely: all defaults.
+	assert.Equal(t, 2, cfg.Retry.MaxRetries)
+	assert.Equal(t, 100*time.Millisecond, cfg.Retry.BaseBackoff)
+	assert.Equal(t, 2*time.Second, cfg.Retry.MaxBackoff)
+	assert.Equal(t, 30*time.Second, cfg.Health.Interval)
+	assert.Equal(t, 5*time.Second, cfg.Health.Timeout)
+}
+
+func TestRetryAndHealthValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		block   string
+		wantErr string
+	}{
+		{name: "explicit retry values", block: "retry:\n  max_retries: 0\n  base_backoff: 50ms\n  max_backoff: 50ms\n"},
+		{name: "negative retries", block: "retry:\n  max_retries: -1\n", wantErr: "max_retries must not be negative"},
+		{name: "max below base", block: "retry:\n  base_backoff: 1s\n  max_backoff: 100ms\n", wantErr: "max_backoff must be at least base_backoff"},
+		{name: "negative health interval", block: "health:\n  interval: -1s\n", wantErr: "health: durations must not be negative"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := config.Parse(strings.NewReader(validYAML() + tt.block))
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, 0, cfg.Retry.MaxRetries, "zero retries is a valid explicit choice")
+			assert.Equal(t, 50*time.Millisecond, cfg.Retry.BaseBackoff)
+		})
+	}
 }
 
 func TestParseRejectsInvalid(t *testing.T) {

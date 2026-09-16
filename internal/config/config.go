@@ -21,6 +21,8 @@ type Config struct {
 	Tiers     map[string][]Target       `yaml:"tiers"`
 	Pricing   []Price                   `yaml:"pricing"`
 	Breaker   BreakerConfig             `yaml:"breaker"`
+	Retry     RetryConfig               `yaml:"retry"`
+	Health    HealthConfig              `yaml:"health"`
 	Teams     []Team                    `yaml:"teams"`
 
 	// Derived indexes, built during validation.
@@ -84,6 +86,95 @@ const (
 	DefaultCooldown         = 15 * time.Second
 	DefaultMaxCooldown      = 2 * time.Minute
 )
+
+// RetryConfig tunes same-provider retries before falling back.
+type RetryConfig struct {
+	// MaxRetries is how many times a retryable failure is retried on the same target.
+	MaxRetries int
+	// BaseBackoff is the ceiling of the first backoff; it doubles per retry.
+	BaseBackoff time.Duration
+	// MaxBackoff caps the doubling.
+	MaxBackoff time.Duration
+
+	// present records whether the block appeared in the file, so an explicit
+	// max_retries: 0 can be told apart from an omitted block.
+	present bool
+}
+
+// Retry defaults.
+const (
+	DefaultMaxRetries  = 2
+	DefaultBaseBackoff = 100 * time.Millisecond
+	DefaultMaxBackoff  = 2 * time.Second
+)
+
+// UnmarshalYAML decodes the block while distinguishing an omitted
+// max_retries (default) from an explicit zero (no retries).
+func (r *RetryConfig) UnmarshalYAML(n *yaml.Node) error {
+	var raw struct {
+		MaxRetries  *int          `yaml:"max_retries"`
+		BaseBackoff time.Duration `yaml:"base_backoff"`
+		MaxBackoff  time.Duration `yaml:"max_backoff"`
+	}
+	if err := n.Decode(&raw); err != nil {
+		return err
+	}
+	r.MaxRetries = DefaultMaxRetries
+	if raw.MaxRetries != nil {
+		r.MaxRetries = *raw.MaxRetries
+	}
+	r.BaseBackoff = raw.BaseBackoff
+	r.MaxBackoff = raw.MaxBackoff
+	r.present = true
+	return nil
+}
+
+func (r *RetryConfig) applyDefaults() error {
+	if !r.present {
+		r.MaxRetries = DefaultMaxRetries
+	}
+	if r.MaxRetries < 0 {
+		return errors.New("retry: max_retries must not be negative")
+	}
+	if r.BaseBackoff == 0 {
+		r.BaseBackoff = DefaultBaseBackoff
+	}
+	if r.MaxBackoff == 0 {
+		r.MaxBackoff = DefaultMaxBackoff
+	}
+	if r.BaseBackoff < 0 || r.MaxBackoff < 0 {
+		return errors.New("retry: durations must not be negative")
+	}
+	if r.MaxBackoff < r.BaseBackoff {
+		return errors.New("retry: max_backoff must be at least base_backoff")
+	}
+	return nil
+}
+
+// HealthConfig tunes the background prober.
+type HealthConfig struct {
+	Interval time.Duration `yaml:"interval"`
+	Timeout  time.Duration `yaml:"timeout"`
+}
+
+// Health prober defaults.
+const (
+	DefaultHealthInterval = 30 * time.Second
+	DefaultHealthTimeout  = 5 * time.Second
+)
+
+func (h *HealthConfig) applyDefaults() error {
+	if h.Interval == 0 {
+		h.Interval = DefaultHealthInterval
+	}
+	if h.Timeout == 0 {
+		h.Timeout = DefaultHealthTimeout
+	}
+	if h.Interval < 0 || h.Timeout < 0 {
+		return errors.New("health: durations must not be negative")
+	}
+	return nil
+}
 
 // Team is a tenant of the gateway with its own keys, limits, and budgets.
 type Team struct {
@@ -252,6 +343,12 @@ func (c *Config) validate() error {
 	}
 
 	if err := c.Breaker.applyDefaults(); err != nil {
+		return err
+	}
+	if err := c.Retry.applyDefaults(); err != nil {
+		return err
+	}
+	if err := c.Health.applyDefaults(); err != nil {
 		return err
 	}
 
